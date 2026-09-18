@@ -8,6 +8,7 @@ lid_source="$ROOT/default/systemd/logind.conf.d/99-omarchy-lid-sleep.conf"
 sleep_source="$ROOT/default/systemd/sleep.conf.d/10-omarchy-suspend-then-hibernate.conf"
 setup="$ROOT/bin/omarchy-hibernation-setup"
 remove="$ROOT/bin/omarchy-hibernation-remove"
+migration="$ROOT/migrations/1789568195.sh"
 
 [[ -f $lid_source ]] || fail "lid-close logind source exists" "$lid_source"
 pass "lid-close logind source exists"
@@ -60,3 +61,31 @@ pass "hibernation setup parses"
 
 bash -n "$remove" || fail "hibernation remove parses"
 pass "hibernation remove parses"
+
+# Existing hibernation setups hit setup's "already set up" early exit before
+# the new policy install, so a migration backfills both files for them.
+[[ -f $migration ]] || fail "lid-close policy migration exists" "$migration"
+pass "lid-close policy migration exists"
+
+grep -Fq 'default/systemd/logind.conf.d/99-omarchy-lid-sleep.conf' "$migration" ||
+  fail "policy migration installs the lid-close policy"
+pass "policy migration installs the lid-close policy"
+
+grep -Fq 'default/systemd/sleep.conf.d/10-omarchy-suspend-then-hibernate.conf' "$migration" ||
+  fail "policy migration installs the sleep policy"
+pass "policy migration installs the sleep policy"
+
+grep -Fq 'omarchy_resume.conf' "$migration" ||
+  fail "policy migration only runs where hibernation is already set up"
+pass "policy migration only runs where hibernation is already set up"
+
+grep -Fq '99-suspend-then-hibernate.conf' "$migration" ||
+  fail "policy migration removes the superseded manual drop-in"
+pass "policy migration removes the superseded manual drop-in"
+
+grep -Fq 'systemd-logind' "$migration" ||
+  fail "policy migration reloads logind or requests a reboot"
+pass "policy migration reloads logind or requests a reboot"
+
+bash -n "$migration" || fail "policy migration parses"
+pass "policy migration parses"
