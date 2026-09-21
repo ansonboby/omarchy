@@ -7,12 +7,14 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 leaf="$ROOT/install/hardware/apple/fix-wifi-resume.sh"
 all="$ROOT/install/hardware/all.sh"
 migration="$ROOT/migrations/1787753224.sh"
+followup="$ROOT/migrations/1790008000.sh"
 fix="$ROOT/bin/omarchy-wifi-resume-fix"
 
 [[ -f $leaf ]] || fail "the Wi-Fi resume recovery leaf ships"
 grep -Fq 'apple/fix-wifi-resume.sh' "$all" ||
   fail "Wi-Fi resume recovery runs during hardware setup"
 [[ -f $migration ]] || fail "existing installs get the Wi-Fi resume recovery"
+[[ -f $followup ]] || fail "already migrated installs get the BCM4388 recovery"
 pass "fresh and existing installs are wired to Wi-Fi resume recovery"
 
 test_tmp=$(mktemp -d)
@@ -266,12 +268,83 @@ pass "the migration is idempotent"
 
 run_migration x86_64 4433
 [[ ! -f $service ]] || fail "the migration skips a T2 Intel Mac"
-run_migration x86_64 4434
-[[ ! -f $service ]] || fail "the migration skips BCM4388 on a T2 Intel Mac"
 run_migration aarch64 4434
-[[ -f $service ]] ||
-  fail "the migration installs the recovery for BCM4388" "$(cat "$calls")"
+[[ ! -f $service ]] || fail "the published migration skips BCM4388"
 pass "the migration skips machines the leaf would skip"
+
+# BCM4388 ships after 1787753224.sh published, so it reaches already migrated
+# machines as its own migration: same shape, narrow gate, same idempotence.
+run_followup() {
+  local arch="$1" wifi_id="${2:-}" enabled="${3:-0}"
+  rm -rf "$test_tmp/etc"
+  mkdir -p "$test_tmp/etc/systemd/system"
+  : >"$calls"
+
+  ARCH="$arch" WIFI_ID="$wifi_id" SERVICE_ENABLED="$enabled" \
+    PATH="$stub_bin:$PATH" TEST_LOG="$calls" OMARCHY_PATH="$test_tmp/omarchy" \
+    bash -euo pipefail "$followup" >/dev/null
+}
+
+run_followup aarch64 4434
+[[ -f $service ]] ||
+  fail "the follow-up migration installs the recovery for BCM4388" "$(cat "$calls")"
+grep -Fq $'systemctl\tenable\tomarchy-wifi-resume-fix.service' "$calls" ||
+  fail "the follow-up migration enables the recovery service" "$(cat "$calls")"
+pass "the follow-up migration installs the recovery for BCM4388"
+
+run_followup aarch64 4434 1
+[[ ! -f $service ]] || fail "an already repaired machine is left untouched"
+! grep -q 'sudo' "$calls" ||
+  fail "the follow-up migration escalates nothing when already repaired" "$(cat "$calls")"
+pass "the follow-up migration is idempotent"
+
+run_followup x86_64 4434
+[[ ! -f $service ]] || fail "the follow-up migration skips a T2 Intel Mac"
+run_followup aarch64 4433
+[[ ! -f $service ]] ||
+  fail "the follow-up migration leaves chips the published migration covers"
+pass "the follow-up migration skips machines it does not affect"
+
+# The upgrade path itself: omarchy-migrate marks completion per filename, so
+# machines that already ran 1787753224.sh carry its marker no matter what a
+# later commit does to that file. Drive the real runner over a sandbox that
+# carries exactly that history, and make sure the follow-up still reaches it.
+runner_state="$test_tmp/state"
+mkdir -p "$runner_state" "$test_tmp/omarchy/migrations"
+cp "$migration" "$followup" "$test_tmp/omarchy/migrations/"
+touch "$runner_state/1787753224.sh"
+
+run_runner() {
+  local mode="${1:-}"
+  rm -rf "$test_tmp/etc"
+  mkdir -p "$test_tmp/etc/systemd/system"
+  : >"$calls"
+
+  ARCH=aarch64 WIFI_ID=4434 SERVICE_ENABLED=0 \
+    PATH="$stub_bin:$PATH" TEST_LOG="$calls" OMARCHY_PATH="$test_tmp/omarchy" \
+    OMARCHY_MIGRATION_STATE="$runner_state" \
+    bash "$ROOT/bin/omarchy-migrate" $mode
+}
+
+pending=$(run_runner --pending)
+grep -Fxq '1790008000.sh' <<<"$pending" ||
+  fail "the runner reports the follow-up as pending" "$pending"
+! grep -q '1787753224' <<<"$pending" ||
+  fail "the runner keeps the published migration marked complete" "$pending"
+pass "the runner still schedules the follow-up on an already migrated machine"
+
+run_runner >/dev/null
+[[ -f $service ]] ||
+  fail "the runner installs the recovery on a machine past the published migration" "$(cat "$calls")"
+[[ -f $runner_state/1790008000.sh ]] ||
+  fail "the runner marks the follow-up complete"
+pass "the runner reaches BCM4388 machines the published migration stamped"
+
+# And a completed upgrade path never re-escalates on the next login.
+run_runner >/dev/null
+[[ ! -s $calls ]] ||
+  fail "a completed upgrade path never re-escalates" "$(cat "$calls")"
+pass "the runner leaves a repaired machine alone"
 
 # The recovery command itself: wedge detection and the decision to reload.
 run_fix() {
