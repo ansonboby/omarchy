@@ -235,9 +235,17 @@ stub_hyprctl <<BINDS
 $(lua_bind 64 "SUPER + O" "Cyclic dispatch")
 BINDS
 
-rendered=$(keybindings)
+# The fallback row also appears on an unpatched baseline (the pcall catches
+# Lua's stack overflow), so the row alone cannot tell the cycle check from a
+# crash being swallowed. The DEBUG diagnostic is what pins the check itself.
+debug_err="$tmpdir/cyclic-debug.err"
+rendered=$(env -i PATH="$stub_bin:$ROOT/bin:$PATH" HOME="$home" \
+  XDG_CACHE_HOME="$tmpdir/cache" OMARCHY_PATH="$ROOT" DEBUG=1 \
+  bash "$ROOT/bin/omarchy-menu-keybindings" --print 2>"$debug_err")
 grep -q '→ Cyclic dispatch$' <<<"$rendered" ||
   fail "a cyclic bind argument fails the scan instead of the session" "$rendered"
+grep -q 'cyclic table in a bind argument' "$debug_err" ||
+  fail "the scan reports why the cyclic bind argument failed" "$(cat "$debug_err")"
 pass "a cyclic bind argument fails the scan instead of the session"
 
 # Dispatcher expressions serialize their own arguments back into the
