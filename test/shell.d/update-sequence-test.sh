@@ -57,7 +57,8 @@ steps_run() {
 }
 
 # Every step of a whole update, in order. $1 asks for the one a person confirms.
-# Stay Awake bookends the work, so it is here twice.
+# Stay Awake wraps the package transactions and is released before the
+# interactive orphan prompt, so it is here twice.
 expected_steps() {
   printf '%s\n' \
     omarchy-update-lock \
@@ -73,10 +74,10 @@ expected_steps() {
     omarchy-hook \
     omarchy-update-aur-pkgs \
     omarchy-update-mise \
+    omarchy-update-stay-awake \
     omarchy-update-orphan-pkgs \
     omarchy-update-analyze-logs \
     omarchy-update-status \
-    omarchy-update-stay-awake \
     omarchy-update-restart
 }
 

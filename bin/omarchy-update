@@ -49,16 +49,20 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
   omarchy-hook post-update
   omarchy-update-aur-pkgs
   omarchy-update-mise
+
+  # The package transactions are done. Release the update's inhibitors before
+  # the orphan-packages step, whose prompt can wait on an answer indefinitely:
+  # a lid closed at that question should suspend the machine the way it did
+  # before updates took the lock at all, not hold it awake and idle-blocked
+  # until someone answers. Releasing here also clears the Stay Awake marker
+  # well before the reboot offer below.
+  omarchy-update-stay-awake stop
+  trap - EXIT
+
   omarchy-update-orphan-pkgs
 
   omarchy-update-analyze-logs
   omarchy-update-status
-
-  # Release update-owned inhibitors before offering a reboot. A confirmed
-  # reboot can terminate this process before its EXIT trap gets a chance to
-  # remove the persistent Stay Awake marker.
-  omarchy-update-stay-awake stop
-  trap - EXIT
 
   omarchy-update-restart
 fi

@@ -157,6 +157,13 @@ fi
 # reboot the machine, rather than relying on an EXIT trap during shutdown.
 write_stub omarchy-snapshot 'exit 0'
 write_stub omarchy-update-keyring 'exit 0'
+# The orphan step can wait on a yes/no answer indefinitely, so it must not
+# sit behind the lid lock: by the time it runs, the inhibitor must already be
+# released and a lid closed there suspends as it did before updates held any
+# lock at all.
+write_stub omarchy-update-orphan-pkgs '
+[[ ! -e "$XDG_RUNTIME_DIR/omarchy-update-stay-awake/inhibit-pid" ]] ||
+  { echo "orphan prompt ran while the update still held the lid lock" >&2; exit 1; }'
 write_stub omarchy-toggle-idle '
 state_file="$HOME/.local/state/omarchy/indicators/stay-awake"
 case "$1" in
@@ -215,23 +222,33 @@ pass "stale inhibitor state does not terminate a reused PID"
 
 # logind ignores high-level sleep locks for the lid switch
 # (LidSwitchIgnoreInhibited defaults to yes), so without the low-level
-# handle-lid-switch lock closing the lid suspends mid-update.
+# handle-lid-switch lock closing the lid suspends mid-update. Real updates
+# start under omarchy-update-lock run, which exports OMARCHY_UPDATE_LOCK_FD,
+# so cover both launch branches: reverting either one's --what mask must
+# fail here.
 inhibit_args_log="$test_tmp/inhibit-args.log"
 write_stub pkexec 'exec "$@"'
 write_stub omarchy-toggle-idle 'exit 0'
 write_stub systemd-inhibit 'printf "%s\n" "$*" >>"$INHIBIT_ARGS_LOG"; exec sleep 30'
 
-: >"$inhibit_args_log"
-INHIBIT_ARGS_LOG="$inhibit_args_log" run_with_lock_env "$ROOT/bin/omarchy-update-stay-awake" start
-for _ in {1..100}; do
-  [[ -s $inhibit_args_log ]] && break
-  sleep 0.05
+for launch in direct locked; do
+  : >"$inhibit_args_log"
+  if [[ $launch == locked ]]; then
+    INHIBIT_ARGS_LOG="$inhibit_args_log" \
+      run_with_lock_env "$ROOT/bin/omarchy-update-lock" run \
+      "$ROOT/bin/omarchy-update-stay-awake" start
+  else
+    INHIBIT_ARGS_LOG="$inhibit_args_log" run_with_lock_env "$ROOT/bin/omarchy-update-stay-awake" start
+  fi
+  for _ in {1..100}; do
+    [[ -s $inhibit_args_log ]] && break
+    sleep 0.05
+  done
+  [[ -s $inhibit_args_log ]] || fail "update starts its lid-blocking inhibitor ($launch launch)"
+  grep -q -- '--what=sleep:idle:handle-lid-switch' "$inhibit_args_log" ||
+    fail "update inhibitor blocks the lid switch ($launch launch)" "$(cat "$inhibit_args_log")"
+  INHIBIT_ARGS_LOG="$inhibit_args_log" run_with_lock_env "$ROOT/bin/omarchy-update-stay-awake" stop
+  [[ ! -f $runtime_dir/omarchy-update-stay-awake/inhibit-pid ]] ||
+    fail "update inhibitor cleans up after the lid-switch assertion ($launch launch)"
 done
-[[ -s $inhibit_args_log ]] || fail "update starts its lid-blocking inhibitor"
-grep -q -- '--what=sleep:idle:handle-lid-switch' "$inhibit_args_log" ||
-  fail "update inhibitor blocks the lid switch" "$(cat "$inhibit_args_log")"
-pass "update inhibitor blocks the lid switch during updates"
-
-INHIBIT_ARGS_LOG="$inhibit_args_log" run_with_lock_env "$ROOT/bin/omarchy-update-stay-awake" stop
-[[ ! -f $runtime_dir/omarchy-update-stay-awake/inhibit-pid ]] ||
-  fail "update inhibitor cleans up after the lid-switch assertion"
+pass "update inhibitor blocks the lid switch on both launch branches"
