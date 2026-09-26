@@ -17,6 +17,10 @@ if ! gum confirm "Remove suspend battery floor setup?"; then
 fi
 
 echo "Removing suspend battery floor hook"
-sudo rm -f -- "$HOOK_DEST"
+if ! sudo rm -f -- "$HOOK_DEST"; then
+  echo "Could not remove the battery-floor hook" >&2
+  exit 1
+fi
+sudo rm -rf -- /run/omarchy-battery-floor
 
 echo "Suspend battery floor removed"

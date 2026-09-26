@@ -50,13 +50,13 @@ if ! omarchy-battery-present; then
 fi
 
 if ! $FORCE && omarchy-hibernation-available; then
-  echo "Hibernation is already available, which protects the battery better."
-  echo "Use --force to install the battery floor anyway."
+  echo "Hibernation is already set up, so hibernate is available on this machine."
+  echo "The battery floor only protects plain suspends. Use --force to install it anyway."
   exit 0
 fi
 
 if ! $FORCE; then
-  if ! gum confirm "Power off 20 minutes after the suspended laptop self-wakes with the lid closed on battery?"; then
+  if ! gum confirm "Power off a lid-closed, undocked laptop 20 minutes after it suspends on battery?"; then
     exit 0
   fi
 fi
@@ -68,4 +68,4 @@ if ! install_root_file "$OMARCHY_PATH/default/systemd/system-sleep/battery-floor
   exit 1
 fi
 
-echo "Suspend battery floor is set up: a lid-shut suspend on battery powers off after 20 minutes"
+echo "Suspend battery floor is set up: a lid-closed, undocked suspend powers off 20 minutes in, even on early wakes"
