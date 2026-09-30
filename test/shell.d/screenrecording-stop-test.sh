@@ -16,8 +16,9 @@ recording_script="$ROOT/bin/omarchy-capture-screenrecording"
 
 # The stop path takes the flock before signaling the recorder, so a second
 # stop launched mid-drain returns instead of racing the first over the
-# recording file and its preview.
-if ! grep -q 'exec 9>/tmp/omarchy-screenrecord.lock' "$recording_script"; then
+# recording file and its preview. The lock lives in the private runtime
+# directory: a fixed /tmp name another account can create first blocks stop.
+if ! grep -qF 'exec 9>"$RUNTIME_DIR/omarchy-screenrecord.lock"' "$recording_script"; then
   fail "screen recording stop takes the lock before doing anything"
 fi
 if ! grep -q 'flock -n 9' "$recording_script"; then
@@ -76,7 +77,7 @@ pass "screen recording stop reaps the lock on early return"
 # Guard the guard: the lock must be taken before the recorder is signaled,
 # or the second stop can pass the guard while the first is already draining.
 script_text=$(cat "$recording_script")
-lock_line=$(grep -n 'exec 9>/tmp/omarchy-screenrecord.lock' "$recording_script" | head -n1 | cut -d: -f1)
+lock_line=$(grep -nF 'exec 9>"$RUNTIME_DIR/omarchy-screenrecord.lock"' "$recording_script" | head -n1 | cut -d: -f1)
 signal_line=$(grep -n 'pkill -SIGINT -f "\^gpu-screen-recorder"' "$recording_script" | head -n1 | cut -d: -f1)
 if (( lock_line >= signal_line )); then
   fail "screen recording stop takes the lock before signaling the recorder"

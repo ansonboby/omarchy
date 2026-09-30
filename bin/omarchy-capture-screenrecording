@@ -217,7 +217,7 @@ start_screenrecording() {
 }
 
 stop_screenrecording() {
-  exec 9>/tmp/omarchy-screenrecord.lock
+  exec 9>"$RUNTIME_DIR/omarchy-screenrecord.lock"
   if ! flock -n 9; then
     exec 9>&-
     return 0
