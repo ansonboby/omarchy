@@ -242,16 +242,18 @@ stop_screenrecording() {
   if pgrep -f "^gpu-screen-recorder" >/dev/null; then
     pkill -9 -f "^gpu-screen-recorder"
     omarchy-notification-send -u critical -t 5000 "Screen recording error" "Recording process had to be force-killed. Video may be corrupted."
+    rm -f "$RECORDING_FILE"
   else
     local filename=$(cat "$RECORDING_FILE" 2>/dev/null)
+    rm -f "$RECORDING_FILE"
+    # Finalizing can take a while, and a recording started meanwhile must be stoppable.
+    exec 9>&-
+    trap - RETURN
     # If another stop already consumed the recording file, don't post a duplicate toast
     if [[ -z $filename ]]; then
-      rm -f "$RECORDING_FILE"
-      exec 9>&-
-      trap - RETURN
       return 0
     fi
-    finalize_recording
+    finalize_recording "$filename"
     echo "$filename"
     local preview="${filename%.mp4}-preview.png"
 
@@ -271,7 +273,6 @@ stop_screenrecording() {
     ) &
   fi
 
-  rm -f "$RECORDING_FILE"
   exec 9>&-
   trap - RETURN
 }
@@ -285,8 +286,7 @@ screenrecording_active() {
 }
 
 finalize_recording() {
-  local latest
-  latest=$(cat "$RECORDING_FILE" 2>/dev/null)
+  local latest=$1
   [[ -f $latest ]] || return
 
   # Re-encode only when the first GOP contains discardable warmup packets — stream copy can't
