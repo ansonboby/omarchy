@@ -12,7 +12,17 @@ if [[ ! -f $MKINITCPIO_CONF ]] || ! grep -q "^HOOKS+=(resume)$" "$MKINITCPIO_CON
   exit 0
 fi
 
-lid_source="$OMARCHY_PATH/default/systemd/logind.conf.d/99-omarchy-lid-sleep.conf"
+# Same model gate as omarchy-hibernation-setup: models whose hibernate resume is
+# known-broken (#11351, #7848 — MacBookPro11,x) get the battery-suspend variant,
+# so delivering this policy cannot cost an existing machine its session. The
+# comparison below is against the model-appropriate source, which also repairs a
+# machine that already received the hibernate variant by mistake.
+lid_policy="default/systemd/logind.conf.d/99-omarchy-lid-sleep.conf"
+if omarchy-hw-match "MacBookPro11,"; then
+  lid_policy="default/systemd/logind.conf.d/99-omarchy-lid-sleep-no-hibernate.conf"
+fi
+
+lid_source="$OMARCHY_PATH/$lid_policy"
 sleep_source="$OMARCHY_PATH/default/systemd/sleep.conf.d/10-omarchy-suspend-then-hibernate.conf"
 lid_dest="/etc/systemd/logind.conf.d/99-omarchy-lid-sleep.conf"
 sleep_dest="/etc/systemd/sleep.conf.d/10-omarchy-suspend-then-hibernate.conf"
